@@ -1,0 +1,79 @@
+name: CI/CD Pipeline for Currency Converter
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deployment_branch:
+        description: "Branch to deploy"
+        required: false
+        default: "main"
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+
+    - name: Run tests
+      run: python -m unittest discover
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.inputs.deployment_branch || github.ref_name }}
+
+    - name: Deploy to home directory on remote server
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        SSH_REMOTE_HOST: ${{ secrets.SSH_REMOTE_HOST }}
+        SSH_REMOTE_USER: ${{ secrets.SSH_REMOTE_USER }}
+      run: |
+        echo "${SSH_PRIVATE_KEY}" > id_ed25519
+        chmod 600 id_ed25519
+        scp -i id_ed25519 -o StrictHostKeyChecking=no -r ./* ${{ env.SSH_REMOTE_USER }}@${{ env.SSH_REMOTE_HOST }}:/home/${{ env.SSH_REMOTE_USER }}
+
+    - name: Simulate user input
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        SSH_REMOTE_HOST: ${{ secrets.SSH_REMOTE_HOST }}
+        SSH_REMOTE_USER: ${{ secrets.SSH_REMOTE_USER }}
+      run: |
+        echo "Simulating user input on remote server..."
+        ssh -i id_ed25519 -o StrictHostKeyChecking=no ${{ env.SSH_REMOTE_USER }}@${{ env.SSH_REMOTE_HOST }} \
+        "echo -e '1\nUSD\nEUR' | python3 /home/${{ env.SSH_REMOTE_USER }}/currency_converter.py > /home/${{ env.SSH_REMOTE_USER }}/simulation_output.log"
+
+    - name: Display simulation result
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        SSH_REMOTE_HOST: ${{ secrets.SSH_REMOTE_HOST }}
+        SSH_REMOTE_USER: ${{ secrets.SSH_REMOTE_USER }}
+      run: |
+        ssh -i id_ed25519 -o StrictHostKeyChecking=no ${{ env.SSH_REMOTE_USER }}@${{ env.SSH_REMOTE_HOST }} \
+        "cat /home/${{ env.SSH_REMOTE_USER }}/simulation_output.log"
+
